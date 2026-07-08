@@ -6,16 +6,15 @@ from io import BytesIO
 
 import plotly.graph_objects as go
 
-from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 
 from scipy.interpolate import CubicSpline
 
-
-# ---------------------------------------------------
-# CONFIG
-# ---------------------------------------------------
+# ==========================================================
+# STREAMLIT CONFIG
+# ==========================================================
 
 st.set_page_config(
     page_title="Compressor Curve Regression",
@@ -24,10 +23,9 @@ st.set_page_config(
 
 st.title("Compressor Curve Regression Tool")
 
-
-# ---------------------------------------------------
+# ==========================================================
 # SIDEBAR
-# ---------------------------------------------------
+# ==========================================================
 
 fit_method = st.sidebar.selectbox(
     "Regression Method",
@@ -44,91 +42,94 @@ fit_method = st.sidebar.selectbox(
 
 generated_points = st.sidebar.slider(
     "Generated Points",
-    10,
-    25,
-    1
+    min_value=10,
+    max_value=200,
+    value=15
 )
 
 uploaded_file = st.file_uploader(
-    "Upload Excel Workbook",
+    "Upload Workbook",
     type=["xlsx"]
 )
 
+# ==========================================================
+# HELPERS
+# ==========================================================
 
-# ---------------------------------------------------
-# COLUMN DETECTION
-# ---------------------------------------------------
+def clean_parameter_name(name):
 
-def detect_columns(df):
+    name = str(name).strip()
+    low = name.lower()
 
-    speed = None
-    flow = None
-    head = None
-    eff = None
-    power = None
+    if "head" in low:
+        return "Head"
 
-    for col in df.columns:
+    if "eff" in low:
+        return "Efficiency"
 
-        c = str(col).lower()
+    if "power" in low:
+        return "Power"
 
-        if speed is None and "speed" in c:
-            speed = col
+    return name
 
-        if flow is None and (
-            "flow" in c
-            or "volumeflow" in c
-            or "inlet1_volumeflowrate" in c
+
+def detect_triplet_blocks(df):
+
+    blocks = []
+
+    cols = [str(c).strip() for c in df.columns]
+
+    for i in range(len(cols) - 2):
+
+        c1 = cols[i].lower()
+        c2 = cols[i + 1].lower()
+        c3 = cols[i + 2]
+
+        if (
+            ("speed" in c1)
+            and
+            (
+                "flow" in c2
+                or "volumeflow" in c2
+            )
         ):
-            flow = col
 
-        if head is None and "head" in c:
-            head = col
+            blocks.append(
+                {
+                    "speed_col": df.columns[i],
+                    "flow_col": df.columns[i + 1],
+                    "value_col": df.columns[i + 2],
+                    "parameter": clean_parameter_name(c3)
+                }
+            )
 
-        if eff is None and (
-            "eff" in c
-            or "efficiency" in c
-        ):
-            eff = col
-
-        if power is None and (
-            "power" in c
-            or "bhp" in c
-            or "kw" in c
-        ):
-            power = col
-
-    return {
-        "speed": speed,
-        "flow": flow,
-        "head": head,
-        "eff": eff,
-        "power": power
-    }
+    return blocks
 
 
-# ---------------------------------------------------
-# REGRESSION
-# ---------------------------------------------------
+# ==========================================================
+# REGRESSION METHODS
+# ==========================================================
 
-def polynomial_fit(x, y, degree, points):
+def polynomial_fit(x, y, degree, npoints):
 
-    poly = PolynomialFeatures(degree)
+    poly = PolynomialFeatures(degree=degree)
 
-    X = poly.fit_transform(
+    X_poly = poly.fit_transform(
         x.reshape(-1, 1)
     )
 
     model = LinearRegression()
-    model.fit(X, y)
 
-    y_pred = model.predict(X)
+    model.fit(X_poly, y)
+
+    y_pred = model.predict(X_poly)
 
     r2 = r2_score(y, y_pred)
 
     x_new = np.linspace(
         x.min(),
         x.max(),
-        points
+        npoints
     )
 
     y_new = model.predict(
@@ -140,7 +141,7 @@ def polynomial_fit(x, y, degree, points):
     return x_new, y_new, r2
 
 
-def spline_fit(x, y, points):
+def spline_fit(x, y, npoints):
 
     idx = np.argsort(x)
 
@@ -156,7 +157,7 @@ def spline_fit(x, y, points):
     x_new = np.linspace(
         x.min(),
         x.max(),
-        points
+        npoints
     )
 
     y_new = spline(x_new)
@@ -164,28 +165,30 @@ def spline_fit(x, y, points):
     return x_new, y_new, r2
 
 
-def run_method(method, x, y, points):
+def run_method(method, x, y, npoints):
 
     if method == "Linear":
-        return polynomial_fit(x, y, 1, points)
+        return polynomial_fit(x, y, 1, npoints)
 
-    elif method == "Quadratic":
-        return polynomial_fit(x, y, 2, points)
+    if method == "Quadratic":
+        return polynomial_fit(x, y, 2, npoints)
 
-    elif method == "Cubic":
-        return polynomial_fit(x, y, 3, points)
+    if method == "Cubic":
+        return polynomial_fit(x, y, 3, npoints)
 
-    elif method == "4th Order":
-        return polynomial_fit(x, y, 4, points)
+    if method == "4th Order":
+        return polynomial_fit(x, y, 4, npoints)
 
-    elif method == "5th Order":
-        return polynomial_fit(x, y, 5, points)
+    if method == "5th Order":
+        return polynomial_fit(x, y, 5, npoints)
 
-    elif method == "Spline":
-        return spline_fit(x, y, points)
+    if method == "Spline":
+        return spline_fit(x, y, npoints)
+
+    raise ValueError("Unknown Method")
 
 
-def auto_best_fit(x, y, points):
+def auto_best_fit(x, y, npoints):
 
     methods = [
         "Linear",
@@ -196,11 +199,9 @@ def auto_best_fit(x, y, points):
         "Spline"
     ]
 
-    best_r2 = -999
-
     best_method = None
-
     best_result = None
+    best_r2 = -999
 
     for method in methods:
 
@@ -210,26 +211,24 @@ def auto_best_fit(x, y, points):
                 method,
                 x,
                 y,
-                points
+                npoints
             )
 
             if result[2] > best_r2:
 
                 best_r2 = result[2]
-
                 best_method = method
-
                 best_result = result
 
-        except:
+        except Exception:
             pass
 
     return best_method, best_result
 
 
-# ---------------------------------------------------
-# PROCESS WORKBOOK
-# ---------------------------------------------------
+# ==========================================================
+# MAIN
+# ==========================================================
 
 if uploaded_file:
 
@@ -238,14 +237,14 @@ if uploaded_file:
         sheet_name=None
     )
 
+    summary_rows = []
+
     overview_rows = []
 
-    r2_rows = []
-
-    output_buffer = BytesIO()
+    output = BytesIO()
 
     with pd.ExcelWriter(
-        output_buffer,
+        output,
         engine="xlsxwriter"
     ) as writer:
 
@@ -253,72 +252,87 @@ if uploaded_file:
 
             st.header(stage_name)
 
-            cols = detect_columns(df)
+            blocks = detect_triplet_blocks(df)
 
-            if cols["speed"] is None:
+            if len(blocks) == 0:
+
+                st.warning(
+                    f"No Speed-Flow-Parameter blocks found in {stage_name}"
+                )
+
                 continue
 
-            if cols["flow"] is None:
-                continue
+            overview_rows.append(
+                {
+                    "Stage": stage_name,
+                    "Blocks Found": len(blocks),
+                    "Parameters":
+                    ", ".join(
+                        [b["parameter"] for b in blocks]
+                    )
+                }
+            )
 
-            speed_col = cols["speed"]
-            flow_col = cols["flow"]
+            tabs = st.tabs(
+                [b["parameter"] for b in blocks]
+            )
 
-            parameters = []
+            for block, tab in zip(blocks, tabs):
 
-            if cols["head"]:
-                parameters.append(cols["head"])
+                with tab:
 
-            if cols["eff"]:
-                parameters.append(cols["eff"])
+                    parameter = block["parameter"]
 
-            if cols["power"]:
-                parameters.append(cols["power"])
-
-            if len(parameters) == 0:
-                continue
-
-            tabs = st.tabs(parameters)
-
-            merged_output = None
-
-            for t, parameter in zip(tabs, parameters):
-
-                with t:
-
-                    work = df[
+                    temp = df[
                         [
-                            speed_col,
-                            flow_col,
-                            parameter
+                            block["speed_col"],
+                            block["flow_col"],
+                            block["value_col"]
                         ]
-                    ].dropna()
+                    ].copy()
 
-                    work.columns = [
+                    temp.columns = [
                         "Speed",
                         "Flow",
                         "Value"
                     ]
 
-                    fig = go.Figure()
-
-                    output_rows = []
-
-                    speeds = sorted(
-                        work["Speed"].unique()
+                    temp["Speed"] = pd.to_numeric(
+                        temp["Speed"],
+                        errors="coerce"
                     )
 
-                    for spd in speeds:
+                    temp["Flow"] = pd.to_numeric(
+                        temp["Flow"],
+                        errors="coerce"
+                    )
 
-                        spd_df = work[
-                            work["Speed"] == spd
-                        ]
+                    temp["Value"] = pd.to_numeric(
+                        temp["Value"],
+                        errors="coerce"
+                    )
 
-                        x = spd_df["Flow"].values
-                        y = spd_df["Value"].values
+                    temp = temp.dropna()
 
-                        if len(x) < 4:
+                    fig = go.Figure()
+
+                    export_rows = []
+
+                    speeds = sorted(
+                        temp["Speed"].unique()
+                    )
+
+                    for speed in speeds:
+
+                        sdf = temp[
+                            temp["Speed"] == speed
+                        ].copy()
+
+                        if len(sdf) < 4:
                             continue
+
+                        x = sdf["Flow"].values
+                        y = sdf["Value"].values
 
                         if fit_method == "Auto Best Fit":
 
@@ -345,14 +359,14 @@ if uploaded_file:
 
                             best_method = fit_method
 
-                        r2_rows.append(
-                            [
-                                stage_name,
-                                spd,
-                                parameter,
-                                best_method,
-                                round(r2, 6)
-                            ]
+                        summary_rows.append(
+                            {
+                                "Stage": stage_name,
+                                "Speed": speed,
+                                "Parameter": parameter,
+                                "Method": best_method,
+                                "R2": round(r2, 6)
+                            }
                         )
 
                         fig.add_trace(
@@ -360,7 +374,7 @@ if uploaded_file:
                                 x=x,
                                 y=y,
                                 mode="markers",
-                                name=f"{spd} Original"
+                                name=f"{speed} Original"
                             )
                         )
 
@@ -369,21 +383,25 @@ if uploaded_file:
                                 x=xfit,
                                 y=yfit,
                                 mode="lines",
-                                name=f"{spd} Fit"
+                                name=f"{speed} Fit"
                             )
                         )
 
-                        temp = pd.DataFrame({
-                            "Speed": spd,
-                            "Flow": xfit,
-                            parameter: yfit
-                        })
-
-                        output_rows.append(temp)
+                        export_rows.append(
+                            pd.DataFrame(
+                                {
+                                    "Speed": speed,
+                                    "Flow": xfit,
+                                    parameter: yfit
+                                }
+                            )
+                        )
 
                     fig.update_layout(
                         title=f"{stage_name} - {parameter}",
-                        height=650
+                        height=650,
+                        xaxis_title="Flow",
+                        yaxis_title=parameter
                     )
 
                     st.plotly_chart(
@@ -391,60 +409,29 @@ if uploaded_file:
                         use_container_width=True
                     )
 
-                    stage_param_df = pd.concat(
-                        output_rows,
-                        ignore_index=True
-                    )
+                    if len(export_rows):
 
-                    if merged_output is None:
-
-                        merged_output = stage_param_df
-
-                    else:
-
-                        merged_output = pd.merge(
-                            merged_output,
-                            stage_param_df,
-                            on=["Speed", "Flow"],
-                            how="outer"
+                        export_df = pd.concat(
+                            export_rows,
+                            ignore_index=True
                         )
 
-            if merged_output is not None:
+                        sheet_name_export = (
+                            f"{stage_name}_{parameter}"
+                        )[:31]
 
-                merged_output.to_excel(
-                    writer,
-                    sheet_name=f"{stage_name}"[:31],
-                    index=False
-                )
-
-            overview_rows.append(
-                [
-                    stage_name,
-                    ",".join(
-                        [str(i) for i in parameters]
-                    ),
-                    len(parameters)
-                ]
-            )
+                        export_df.to_excel(
+                            writer,
+                            sheet_name=sheet_name_export,
+                            index=False
+                        )
 
         overview_df = pd.DataFrame(
-            overview_rows,
-            columns=[
-                "Stage",
-                "Parameters",
-                "Count"
-            ]
+            overview_rows
         )
 
         r2_df = pd.DataFrame(
-            r2_rows,
-            columns=[
-                "Stage",
-                "Speed",
-                "Parameter",
-                "Method",
-                "R2"
-            ]
+            summary_rows
         )
 
         overview_df.to_excel(
@@ -459,15 +446,20 @@ if uploaded_file:
             index=False
         )
 
-    st.success("Processing Completed")
+    st.success("Regression Completed")
 
-    st.subheader("R² Summary")
+    if len(summary_rows):
 
-    st.dataframe(r2_df)
+        st.subheader("R² Summary")
+
+        st.dataframe(
+            r2_df,
+            use_container_width=True
+        )
 
     st.download_button(
         label="Download Regression Workbook",
-        data=output_buffer.getvalue(),
+        data=output.getvalue(),
         file_name="Regression_Output.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
