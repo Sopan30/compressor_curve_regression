@@ -45,8 +45,8 @@ fit_method = st.sidebar.selectbox(
 generated_points = st.sidebar.slider(
     "Generated Points",
     10,
-    200,
-    15
+    25,
+    1
 )
 
 uploaded_file = st.file_uploader(
