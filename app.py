@@ -15,7 +15,7 @@ st.title('Compressor Curve Regression Tool')
 
 method = st.sidebar.selectbox('Regression Method',
     ['Auto Best Fit','Linear','Quadratic','Cubic','4th Order','5th Order','Spline'])
-points = st.sidebar.slider('Generated Points',20,50,20)
+points = st.sidebar.slider('Generated Points',15,50,15)
 file = st.file_uploader('Upload Workbook', type=['xlsx'])
 
 
