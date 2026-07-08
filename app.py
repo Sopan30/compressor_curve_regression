@@ -205,7 +205,7 @@ if file:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-st.download_button(
+    st.download_button(
     label="Download Regression Workbook",
     data=output.getvalue(),
     file_name=f"Regression_Output_{timestamp}.xlsx",
