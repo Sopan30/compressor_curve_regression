@@ -9,6 +9,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from scipy.interpolate import CubicSpline
 from datetime import datetime
+import os
 
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
@@ -203,11 +204,17 @@ if file:
         pd.DataFrame(r2_rows,columns=['Stage','Speed','Parameter','Method','R2']).to_excel(writer,sheet_name='Summary_R2',index=False)
         pd.DataFrame(overview).to_excel(writer,sheet_name='Workbook_Overview',index=False)
 
+    output.seek(0)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    input_filename = os.path.splitext(file.name)[0]
+
+    output_filename = f"{input_filename}_Regression_Output_{timestamp}.xlsx"
 
     st.download_button(
     label="Download Regression Workbook",
     data=output.getvalue(),
-    file_name=f"Regression_Output_{timestamp}.xlsx",
+    file_name=output_filename,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+    )
