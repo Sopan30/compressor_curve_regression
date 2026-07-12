@@ -9,6 +9,7 @@ from sklearn.metrics import r2_score
 from scipy.interpolate import CubicSpline
 from datetime import datetime
 import os
+import re
 
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
@@ -23,6 +24,7 @@ file = st.file_uploader('Upload Workbook', type=['xlsx'])
 # ---------------------------------------------------------------------------
 R_UNIVERSAL = 8314.462618   # J/(kmol.K)
 G = 9.80665                 # m/s^2
+P_ATM_KG_CM2 = 1.033227     # Standard Atmospheric Pressure in kg/cm2
 
 def normalize_unit(u):
     """Fold formatting variants ('m³/hr', 'M3/HR', 'ft^3 / min', 'Ft3.Min') onto one key."""
@@ -77,7 +79,6 @@ EFF_TO_PCT = {
     'fraction': 100.0, 'decimal': 100.0, 'ratio': 100.0, 'frac': 100.0,
 }
 
-# New Target UOM Conversion Dictionaries for Operating Conditions
 DIAMETER_TO_M = {
     'in': 0.0254, 'inch': 0.0254, 'inches': 0.0254,
     'mm': 0.001, 'milimeter': 0.001, 'milimeters': 0.001,
@@ -85,18 +86,8 @@ DIAMETER_TO_M = {
     'm': 1.0, 'meter': 1.0, 'meters': 1.0
 }
 
-PRESSURE_TO_KG_CM2A = {
-    'psi': 0.070306958, 'psia': 0.070306958,
-    'bar': 1.01971621, 'bara': 1.01971621,
-    'kpa': 0.010197162, 'kpaa': 0.010197162,
-    'mpa': 10.1971621, 'mpaa': 10.1971621,
-    'kg/cm2': 1.0, 'kg/cm2a': 1.0, 'kgf/cm2': 1.0, 'kgf/cm2a': 1.0,
-    'atm': 1.033227, 'pa': 0.00001019716
-}
-
 def convert_temperature_to_c(val, unit_str):
     """Handles temperature offset scales directly instead of single scalar multipliers."""
-    # Strip out the degree symbol along with other formatting variants
     u = str(unit_str).strip().lower()
     u = u.replace('°', '').replace('degree', '').replace('deg', '')
     u = u.replace(' ', '').replace('.', '').replace('-', '').replace('_', '')
@@ -111,13 +102,40 @@ def convert_temperature_to_c(val, unit_str):
         return val, True
     return val, False
 
+def convert_pressure_to_kg_cm2a(val, unit_str):
+    """Handles scalar conversion for pressure and scales up gauge options to kg/cm2 absolute."""
+    u = normalize_unit(unit_str)
+    
+    # Base multiplier chart referenced to kg/cm2
+    multipliers = {
+        'psi': 0.070306958, 'psia': 0.070306958, 'psig': 0.070306958,
+        'bar': 1.01971621, 'bara': 1.01971621, 'barg': 1.01971621,
+        'kpa': 0.010197162, 'kpaa': 0.010197162, 'kpag': 0.010197162,
+        'mpa': 10.1971621, 'mpaa': 10.1971621, 'mpag': 10.1971621,
+        'kg/cm2': 1.0, 'kg/cm2a': 1.0, 'kg/cm2g': 1.0, 
+        'kgf/cm2': 1.0, 'kgf/cm2a': 1.0, 'kgf/cm2g': 1.0,
+        'atm': 1.033227, 'atmg': 1.033227, 'pa': 0.00001019716, 'pag': 0.00001019716
+    }
+    
+    if u not in multipliers:
+        return val, False
+        
+    kg_cm2_val = val * multipliers[u]
+    
+    # Add ambient baseline if explicitly declared as a gauge unit format
+    if u.endswith('g') or u in ['psi', 'bar', 'kpa', 'mpa', 'kg/cm2', 'kgf/cm2']:
+        # If explicitly absolute via 'a', do not add atmospheric offset
+        if not u.endswith('a'):
+            return kg_cm2_val + P_ATM_KG_CM2, True
+            
+    return kg_cm2_val, True
+
 def convert_unit(value, unit_str, table, label):
     key = normalize_unit(unit_str)
     if key in table:
         return value * table[key], True
     return value, False
 
-# Helper conversions for internal mass density calculator
 def kg_cm2a_to_pa(kg_cm2a):
     return kg_cm2a * 98066.5
 
@@ -161,7 +179,7 @@ def detect_triplet_blocks(raw_df):
     uniq = []
     seen = set()
     for b in blocks:
-        k = (b['parameter'], b['start_col'])
+        k = b['start_col']
         if k not in seen:
             seen.add(k)
             uniq.append(b)
@@ -224,9 +242,12 @@ def extract_property_block(raw_df, block):
         v_val = value.item() if hasattr(value, 'item') else value
         u_str = '' if pd.isna(units) else str(units).strip()
         
-        # intercept and update based on engineering parameters
+        # Intercept and update based on engineering parameters
         if 'diameter' in p_name.lower():
             try:
+                if isinstance(v_val, str):
+                    v_val = re.split(r'[,/]', v_val)[0].strip()
+                
                 converted_val, success = convert_unit(float(v_val), u_str, DIAMETER_TO_M, 'diameter')
                 if success:
                     v_val = converted_val
@@ -235,7 +256,10 @@ def extract_property_block(raw_df, block):
                 pass
         elif 'pressure' in p_name.lower():
             try:
-                converted_val, success = convert_unit(float(v_val), u_str, PRESSURE_TO_KG_CM2A, 'pressure')
+                if isinstance(v_val, str):
+                    v_val = re.split(r'[,/]', v_val)[0].strip()
+                
+                converted_val, success = convert_pressure_to_kg_cm2a(float(v_val), u_str)
                 if success:
                     v_val = converted_val
                     u_str = 'kg/cm2a'
@@ -243,6 +267,9 @@ def extract_property_block(raw_df, block):
                 pass
         elif 'temperature' in p_name.lower():
             try:
+                if isinstance(v_val, str):
+                    v_val = re.split(r'[,/]', v_val)[0].strip()
+                
                 converted_val, success = convert_temperature_to_c(float(v_val), u_str)
                 if success:
                     v_val = converted_val
@@ -289,7 +316,6 @@ def auto_best(x, y):
     return best_name, best
 
 def gas_properties_from_df(prop_df):
-    """Pulls properties assuming they have been parsed into standard units."""
     lookup = {}
     for _, row in prop_df.iterrows():
         name = str(row['Parameter']).lower()
@@ -341,173 +367,222 @@ if file:
     r2_rows = []
     overview = []
     property_rows = []
+    fatal_error = None
 
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    try:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            pd.DataFrame([{'status': 'processing started'}]).to_excel(
+                writer, sheet_name='_status', index=False)
 
-        for stage in xls.sheet_names:
-            st.header(stage)
-            raw = pd.read_excel(file, sheet_name=stage, header=None)
-            blocks = detect_triplet_blocks(raw)
+            for stage in xls.sheet_names:
+                st.header(stage)
+                try:
+                    raw = pd.read_excel(file, sheet_name=stage, header=None)
+                    blocks = detect_triplet_blocks(raw)
 
-            prop_block = detect_property_block(raw)
-            prop_df = extract_property_block(raw, prop_block)
-            gas_props = None
-            if not prop_df.empty:
-                st.subheader('Operating Conditions')
-                st.dataframe(prop_df, use_container_width=True)
-                for _, row in prop_df.iterrows():
-                    property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
-                gas_props = gas_properties_from_df(prop_df)
-                if gas_props is None:
-                    st.info('Could not read Pressure/Temperature/MW/Compressibility as numbers — '
-                            'skipping missing-parameter calculation for this stage.')
-            else:
-                st.warning(f'No operating-conditions block found in {stage}')
-
-            if not blocks:
-                st.warning(f'No blocks found in {stage}')
-                continue
-
-            block_summary = pd.DataFrame([
-                {'parameter': b['parameter'], 'speed_unit': b['speed_unit'],
-                 'flow_unit': b['flow_unit'], 'value_unit': b['value_unit']}
-                for b in blocks
-            ])
-            st.dataframe(block_summary)
-
-            stage_models = {}
-            stage_parameters = []
-
-            tabs = st.tabs([b['parameter'] for b in blocks])
-
-            for tab, block in zip(tabs, blocks):
-                with tab:
-                    param = block['parameter']
-                    df, flow_conv, val_conv = extract_block_data(raw, block)
-                    stage_parameters.append(param)
-
-                    unit_note = []
-                    if not flow_conv:
-                        unit_note.append(f"flow unit '{block['flow_unit']}' not recognized, left as-is")
-                    if not val_conv:
-                        unit_note.append(f"{param} unit '{block['value_unit']}' not recognized, left as-is")
-                    if unit_note:
-                        st.caption('⚠ ' + '; '.join(unit_note))
+                    prop_block = detect_property_block(raw)
+                    prop_df = extract_property_block(raw, prop_block)
+                    gas_props = None
+                    if not prop_df.empty:
+                        st.subheader('Operating Conditions')
+                        st.dataframe(prop_df, use_container_width=True)
+                        for _, row in prop_df.iterrows():
+                            property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
+                        gas_props = gas_properties_from_df(prop_df)
+                        if gas_props is None:
+                            st.info('Could not read Pressure/Temperature/MW/Compressibility as numbers — '
+                                    'skipping missing-parameter calculation for this stage.')
                     else:
-                        target_unit = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(param, '')
-                        st.caption(f"Converted to Flow: m³/hr, {param}: {target_unit}")
+                        st.warning(f'No operating-conditions block found in {stage}')
 
-                    fig = go.Figure()
+                    if not blocks:
+                        st.warning(f'No blocks found in {stage}')
+                        overview.append({'Stage': stage, 'Parameters': '', 'Blocks Found': 0,
+                                          'Calculated Parameter': '', 'Status': 'no blocks found'})
+                        continue
 
-                    if param not in stage_models:
-                        stage_models[param] = {}
+                    clean_blocks = []
+                    for b in blocks:
+                        looks_numeric = False
+                        for u in (b['speed_unit'], b['flow_unit'], b['value_unit']):
+                            try:
+                                float(u)
+                                looks_numeric = True
+                            except (ValueError, TypeError):
+                                pass
+                        if looks_numeric:
+                            st.warning(f"Skipping a detected block for '{b['parameter']}' at column "
+                                       f"{b['start_col']} — its units row looks like data, not units "
+                                       f"('{b['speed_unit']}', '{b['flow_unit']}', '{b['value_unit']}'). "
+                                       f"This usually means a duplicated/mislabeled header row in the source sheet.")
+                        else:
+                            clean_blocks.append(b)
+                    blocks = clean_blocks
 
-                    for speed in sorted(df['Speed'].unique()):
-                        sdf = df[df['Speed'] == speed]
-                        if len(sdf) < 4:
+                    if not blocks:
+                        st.warning(f'No valid blocks remained after validation in {stage}')
+                        overview.append({'Stage': stage, 'Parameters': '', 'Blocks Found': 0,
+                                          'Calculated Parameter': '', 'Status': 'blocks failed validation'})
+                        continue
+
+                    block_summary = pd.DataFrame([
+                        {'parameter': b['parameter'], 'speed_unit': b['speed_unit'],
+                         'flow_unit': b['flow_unit'], 'value_unit': b['value_unit']}
+                        for b in blocks
+                    ])
+                    st.dataframe(block_summary)
+
+                    stage_models = {}
+                    stage_parameters = []
+
+                    tabs = st.tabs([b['parameter'] for b in blocks])
+
+                    for tab, block in zip(tabs, blocks):
+                        with tab:
+                            param = block['parameter']
+                            df, flow_conv, val_conv = extract_block_data(raw, block)
+                            stage_parameters.append(param)
+
+                            unit_note = []
+                            if not flow_conv:
+                                unit_note.append(f"flow unit '{block['flow_unit']}' not recognized, left as-is")
+                            if not val_conv:
+                                unit_note.append(f"{param} unit '{block['value_unit']}' not recognized, left as-is")
+                            if unit_note:
+                                st.caption('⚠ ' + '; '.join(unit_note))
+                            else:
+                                target_unit = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(param, '')
+                                st.caption(f"Converted to Flow: m³/hr, {param}: {target_unit}")
+
+                            fig = go.Figure()
+
+                            if param not in stage_models:
+                                stage_models[param] = {}
+
+                            for speed in sorted(df['Speed'].unique()):
+                                sdf = df[df['Speed'] == speed]
+                                if len(sdf) < 4:
+                                    continue
+
+                                x = sdf['Flow'].values.astype(float)
+                                y = sdf['Value'].values.astype(float)
+
+                                if method == 'Auto Best Fit':
+                                    used, mdl = auto_best(x, y)
+                                else:
+                                    mdl = build_model(x, y, method)
+                                    used = method
+
+                                if mdl is None:
+                                    continue
+
+                                stage_models[param][speed] = mdl
+
+                                r2_rows.append([stage, speed, param, used, round(mdl['r2'], 6)])
+
+                                flow_fit = np.linspace(x.min(), x.max(), points)
+                                y_fit = predict_model(mdl, flow_fit)
+
+                                fig.add_trace(go.Scatter(x=x, y=y, mode='markers', name=f'{speed} Original'))
+                                fig.add_trace(go.Scatter(x=flow_fit, y=y_fit, mode='lines', name=f'{speed} Fit'))
+
+                            st.plotly_chart(fig, use_container_width=True)
+
+                    speeds = set()
+                    for p in stage_models:
+                        speeds.update(stage_models[p].keys())
+
+                    export_rows = []
+                    computed_param_name = None
+
+                    for speed in sorted(speeds):
+                        available = []
+                        for p in stage_models:
+                            if speed in stage_models[p]:
+                                available.append(stage_models[p][speed])
+
+                        if len(available) < 1:
                             continue
 
-                        x = sdf['Flow'].values.astype(float)
-                        y = sdf['Value'].values.astype(float)
+                        common_min = max(m['xmin'] for m in available)
+                        common_max = min(m['xmax'] for m in available)
 
-                        if method == 'Auto Best Fit':
-                            used, mdl = auto_best(x, y)
-                        else:
-                            mdl = build_model(x, y, method)
-                            used = method
+                        if common_max <= common_min:
+                            continue
 
-                        stage_models[param][speed] = mdl
+                        common_flow = np.linspace(common_min, common_max, points)
 
-                        r2_rows.append([stage, speed, param, used, round(mdl['r2'], 6)])
+                        temp = {'Speed': [speed] * points, 'Flow (m3/hr)': common_flow}
 
-                        flow_fit = np.linspace(x.min(), x.max(), points)
-                        y_fit = predict_model(mdl, flow_fit)
+                        predicted = {}
+                        for p in stage_models:
+                            if speed in stage_models[p]:
+                                vals = predict_model(stage_models[p][speed], common_flow)
+                                predicted[p] = vals
+                                unit_label = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(p, '')
+                                temp[f'{p} ({unit_label})'] = vals
 
-                        fig.add_trace(go.Scatter(x=x, y=y, mode='markers', name=f'{speed} Original'))
-                        fig.add_trace(go.Scatter(x=flow_fit, y=y_fit, mode='lines', name=f'{speed} Fit'))
+                        if gas_props is not None:
+                            try:
+                                rho = gas_density_kg_m3(gas_props['pressure_kg_cm2a'], gas_props['temperature_c'],
+                                                         gas_props['mw'], gas_props['z'])
+                                mass_flow_kg_s = common_flow * rho / 3600.0
+                                name, values = compute_missing_parameter(predicted, mass_flow_kg_s)
+                                if name is not None:
+                                    computed_param_name = name
+                                    unit_label = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(name, '')
+                                    temp[f'{name} ({unit_label}, calculated)'] = values
+                            except (ZeroDivisionError, ValueError, KeyError) as e:
+                                st.warning(f"Could not compute missing parameter for {stage} @ speed {speed}: {e}")
 
-                    st.plotly_chart(fig, use_container_width=True)
+                        export_rows.append(pd.DataFrame(temp))
 
-            # COMMON FLOW EXPORT PER SPEED (+ missing-parameter calculation)
-            speeds = set()
-            for p in stage_models:
-                speeds.update(stage_models[p].keys())
+                    if computed_param_name:
+                        st.success(f"Calculated missing parameter **{computed_param_name}** for {stage} "
+                                   f"using gas density from Operating Conditions.")
 
-            export_rows = []
-            computed_param_name = None
+                    if export_rows:
+                        final_df = pd.concat(export_rows, ignore_index=True)
+                        final_df.to_excel(writer, sheet_name=stage[:31], index=False)
 
-            for speed in sorted(speeds):
-                available = []
-                for p in stage_models:
-                    if speed in stage_models[p]:
-                        available.append(stage_models[p][speed])
+                    overview.append({
+                        'Stage': stage,
+                        'Parameters': ','.join(stage_parameters),
+                        'Blocks Found': len(blocks),
+                        'Calculated Parameter': computed_param_name or '',
+                        'Status': 'ok'
+                    })
 
-                if len(available) < 1:
-                    continue
+                except Exception as e:
+                    st.error(f"Error processing '{stage}': {e}")
+                    overview.append({'Stage': stage, 'Parameters': '', 'Blocks Found': 0,
+                                      'Calculated Parameter': '', 'Status': f'error: {e}'})
 
-                common_min = max(m['xmin'] for m in available)
-                common_max = min(m['xmax'] for m in available)
+            pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
+                writer, sheet_name='Summary_R2', index=False)
+            pd.DataFrame(overview).to_excel(writer, sheet_name='Workbook_Overview', index=False)
 
-                if common_max <= common_min:
-                    continue
+            if property_rows:
+                pd.DataFrame(
+                    property_rows, columns=['Stage', 'Parameter', 'Value', 'Units']
+                ).to_excel(writer, sheet_name='Operating_Conditions', index=False)
 
-                common_flow = np.linspace(common_min, common_max, points)
+    except Exception as e:
+        fatal_error = e
 
-                temp = {'Speed': [speed] * points, 'Flow (m3/hr)': common_flow}
+    if fatal_error is not None:
+        st.error(f"Could not build the output workbook: {fatal_error}")
+        st.info("Nothing to download — see the error above.")
+    else:
+        output.seek(0)
 
-                predicted = {}
-                for p in stage_models:
-                    if speed in stage_models[p]:
-                        vals = predict_model(stage_models[p][speed], common_flow)
-                        predicted[p] = vals
-                        unit_label = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(p, '')
-                        temp[f'{p} ({unit_label})'] = vals
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        input_filename = os.path.splitext(file.name)[0]
+        output_filename = f"{input_filename}_Regression_Output_{timestamp}.xlsx"
 
-                if gas_props is not None:
-                    rho = gas_density_kg_m3(gas_props['pressure_kg_cm2a'], gas_props['temperature_c'],
-                                             gas_props['mw'], gas_props['z'])
-                    mass_flow_kg_s = common_flow * rho / 3600.0
-                    name, values = compute_missing_parameter(predicted, mass_flow_kg_s)
-                    if name is not None:
-                        computed_param_name = name
-                        unit_label = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(name, '')
-                        temp[f'{name} ({unit_label}, calculated)'] = values
-
-                export_rows.append(pd.DataFrame(temp))
-
-            if computed_param_name:
-                st.success(f"Calculated missing parameter **{computed_param_name}** for {stage} "
-                           f"using gas density from Operating Conditions.")
-
-            if export_rows:
-                final_df = pd.concat(export_rows, ignore_index=True)
-                final_df.to_excel(writer, sheet_name=stage[:31], index=False)
-
-            overview.append({
-                'Stage': stage,
-                'Parameters': ','.join(stage_parameters),
-                'Blocks Found': len(blocks),
-                'Calculated Parameter': computed_param_name or ''
-            })
-
-        pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
-            writer, sheet_name='Summary_R2', index=False)
-        pd.DataFrame(overview).to_excel(writer, sheet_name='Workbook_Overview', index=False)
-
-        if property_rows:
-            pd.DataFrame(
-                property_rows, columns=['Stage', 'Parameter', 'Value', 'Units']
-            ).to_excel(writer, sheet_name='Operating_Conditions', index=False)
-
-    output.seek(0)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    input_filename = os.path.splitext(file.name)[0]
-    output_filename = f"{input_filename}_Regression_Output_{timestamp}.xlsx"
-
-    st.download_button(
-        label="Download Regression Workbook",
-        data=output.getvalue(),
-        file_name=output_filename,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        st.download_button(
+            label="Download Regression Workbook",
+            data=output.getvalue(),
+            file_name=output_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
