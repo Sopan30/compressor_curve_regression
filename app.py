@@ -103,28 +103,29 @@ def convert_temperature_to_c(val, unit_str):
     return val, False
 
 def convert_pressure_to_kg_cm2a(val, unit_str):
-    """Handles scalar conversion for pressure and scales up gauge options to kg/cm2 absolute."""
     u = normalize_unit(unit_str)
-    
+
     multipliers = {
         'psi': 0.070306958, 'psia': 0.070306958, 'psig': 0.070306958,
         'bar': 1.01971621, 'bara': 1.01971621, 'barg': 1.01971621,
         'kpa': 0.010197162, 'kpaa': 0.010197162, 'kpag': 0.010197162,
         'mpa': 10.1971621, 'mpaa': 10.1971621, 'mpag': 10.1971621,
-        'kg/cm2': 1.0, 'kg/cm2a': 1.0, 'kg/cm2g': 1.0, 
+        'kg/cm2': 1.0, 'kg/cm2a': 1.0, 'kg/cm2g': 1.0,
         'kgf/cm2': 1.0, 'kgf/cm2a': 1.0, 'kgf/cm2g': 1.0,
-        'atm': 1.033227, 'atmg': 1.033227, 'pa': 0.00001019716, 'pag': 0.00001019716
+        'atm': 1.033227, 'atmg': 1.033227,
+        'pa': 0.00001019716, 'pag': 0.00001019716
     }
-    
+
     if u not in multipliers:
         return val, False
-        
+
     kg_cm2_val = val * multipliers[u]
-    
-    if u.endswith('g') or u in ['psi', 'bar', 'kpa', 'mpa', 'kg/cm2', 'kgf/cm2']:
-        if not u.endswith('a'):
-            return kg_cm2_val + P_ATM_KG_CM2, True
-            
+
+    # Absolute is now the default. Atmospheric offset is added ONLY
+    # when the unit explicitly says gauge (e.g. 'psig', 'barg').
+    if u.endswith('g'):
+        return kg_cm2_val + P_ATM_KG_CM2, True
+
     return kg_cm2_val, True
 
 def convert_unit(value, unit_str, table, label):
@@ -243,7 +244,6 @@ def extract_property_block(raw_df, block):
             try:
                 if isinstance(v_val, str):
                     v_val = re.split(r'[,/]', v_val)[0].strip()
-                
                 converted_val, success = convert_unit(float(v_val), u_str, DIAMETER_TO_M, 'diameter')
                 if success:
                     v_val = converted_val
@@ -254,7 +254,6 @@ def extract_property_block(raw_df, block):
             try:
                 if isinstance(v_val, str):
                     v_val = re.split(r'[,/]', v_val)[0].strip()
-                
                 converted_val, success = convert_pressure_to_kg_cm2a(float(v_val), u_str)
                 if success:
                     v_val = converted_val
@@ -265,7 +264,6 @@ def extract_property_block(raw_df, block):
             try:
                 if isinstance(v_val, str):
                     v_val = re.split(r'[,/]', v_val)[0].strip()
-                
                 converted_val, success = convert_temperature_to_c(float(v_val), u_str)
                 if success:
                     v_val = converted_val
@@ -323,12 +321,19 @@ def gas_properties_from_df(prop_df):
             lookup['mw'] = row['Value']
         elif 'compressibility' in name or 'z' in name:
             lookup['z'] = row['Value']
+        elif 'isentropic' in name or 'k' == name.strip():
+            lookup['k'] = row['Value']
+        elif 'diameter' in name:
+            lookup['diameter'] = row['Value']
+            
     try:
         return {
             'pressure_kg_cm2a': float(lookup['pressure']),
             'temperature_c': float(lookup['temperature']),
             'mw': float(lookup['mw']),
             'z': float(lookup['z']),
+            'k': float(lookup.get('k', 1.4)), 
+            'diameter_m': float(lookup.get('diameter', 1.0))
         }
     except (KeyError, TypeError, ValueError):
         return None
@@ -367,9 +372,7 @@ if file:
 
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            pd.DataFrame([{'status': 'processing started'}]).to_excel(
-                writer, sheet_name='_status', index=False)
-
+            # First sheet tracking flags will be generated below directly to skip placeholder sheet
             for stage in xls.sheet_names:
                 st.header(stage)
                 try:
@@ -379,15 +382,44 @@ if file:
                     prop_block = detect_property_block(raw)
                     prop_df = extract_property_block(raw, prop_block)
                     gas_props = None
+                    
                     if not prop_df.empty:
                         st.subheader('Operating Conditions')
                         st.dataframe(prop_df, use_container_width=True)
                         for _, row in prop_df.iterrows():
                             property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
                         gas_props = gas_properties_from_df(prop_df)
-                        if gas_props is None:
+                        
+                        if gas_props is not None:
+                            t_k = c_to_k(gas_props['temperature_c'])
+                            p_pa = kg_cm2a_to_pa(gas_props['pressure_kg_cm2a'])
+                            
+                            # 1. Intermediate Properties
+                            acoustic_vel = np.sqrt((gas_props['k'] * gas_props['z'] * R_UNIVERSAL * t_k) / gas_props['mw'])
+                            spec_vol = (gas_props['z'] * R_UNIVERSAL * t_k) / (p_pa * gas_props['mw'])
+                            rho = 1.0 / spec_vol
+                            
+                            # 2. Updated Nondimensionalization Display Values
+                            speed_factor = (2 * np.pi * gas_props['diameter_m']) / (60.0 * acoustic_vel)
+                            flow_factor = 1.0 / (acoustic_vel *gas_props['diameter_m']**2)
+                            head_factor = 1000.0 / (acoustic_vel**2)
+                            power_factor = (1000.0 * 30 * rho) / (np.pi *acoustic_vel**2 *gas_props['diameter_m']**3)
+                            
+                            derived_df = pd.DataFrame([
+                                {'Parameter': 'Acoustic Velocity', 'Value': round(acoustic_vel, 2), 'Units': 'm/s'},
+                                {'Parameter': 'Specific Volume', 'Value': round(spec_vol, 5), 'Units': 'm3/kg'},
+                                {'Parameter': 'Rotational Speed', 'Value': f"{speed_factor:.5e}", 'Units': 'rpm'},
+                                {'Parameter': 'Volumetric Flow', 'Value': f"{flow_factor:.5e}", 'Units': 'm3/s'},
+                                {'Parameter': 'Polytropic Head', 'Value': f"{head_factor:.5e}", 'Units': 'kJ/kg'},
+                                {'Parameter': 'Power', 'Value': f"{power_factor:.5e}", 'Units': 'kW'}
+                            ])
+                            st.dataframe(derived_df, use_container_width=True)
+                            
+                            for _, row in derived_df.iterrows():
+                                property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
+                        else:
                             st.info('Could not read Pressure/Temperature/MW/Compressibility as numbers — '
-                                    'skipping missing-parameter calculation for this stage.')
+                                    'skipping derived calculations and missing-parameter steps.')
                     else:
                         st.warning(f'No operating-conditions block found in {stage}')
 
@@ -506,7 +538,6 @@ if file:
                         common_min = max(m['xmin'] for m in available)
                         common_max = min(m['xmax'] for m in available)
 
-                        # ERROR INTERACTION CHECK: Flag if flow ranges do not overlap
                         if common_max <= common_min:
                             err_msg = f"Flow values do not overlap for Stage: **{stage}** at Speed: **{speed}** across parameters ({', '.join(available_params)})."
                             st.error(err_msg)
@@ -535,13 +566,26 @@ if file:
                                     computed_param_name = name
                                     unit_label = {'Head': 'm', 'Power': 'kW', 'Efficiency': '%'}.get(name, '')
                                     temp[f'{name} ({unit_label}, calculated)'] = values
+                                    predicted[name] = values
+                                
+                                head_meters = predicted['Head']
+                                head_kj_kg = (head_meters * G) / 1000.0
+                                eff_pct = predicted['Efficiency']
+                                
+                                k_val = gas_props['k']
+                                L5 = (k_val * (eff_pct / 100.0)) / (k_val - 1.0)
+                                M5 = (acoustic_vel ** 2) / k_val
+                                
+                                pressure_ratio = (1.0 + (1000.0 * head_kj_kg) / (M5 * L5)) ** L5
+                                temp['Pressure Ratio'] = pressure_ratio
+                                
                             except (ZeroDivisionError, ValueError, KeyError) as e:
-                                st.warning(f"Could not compute missing parameter for {stage} @ speed {speed}: {e}")
+                                st.warning(f"Could not compute missing parameter/pressure ratio for {stage} @ speed {speed}: {e}")
 
                         export_rows.append(pd.DataFrame(temp))
 
                     if computed_param_name and stage_status == 'ok':
-                        st.success(f"Calculated missing parameter **{computed_param_name}** for {stage} "
+                        st.success(f"Calculated missing parameter **{computed_param_name}** and **Pressure Ratio** for {stage} "
                                    f"using gas density from Operating Conditions.")
 
                     if export_rows:
