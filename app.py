@@ -24,7 +24,7 @@ file = st.file_uploader('Upload Workbook', type=['xlsx'])
 # ---------------------------------------------------------------------------
 R_UNIVERSAL = 8314.462618   # J/(kmol.K)
 G = 9.80665                 # m/s^2
-P_ATM_KG_CM2 = 1.033227     # Standard Atmospheric Pressure in kg/cm2
+P_ATM_KG_CM2 = 1.033227     # Standard Atmospheric Pressure in kg/cm2 a
 
 def normalize_unit(u):
     """Fold formatting variants ('m³/hr', 'M3/HR', 'ft^3 / min', 'Ft3.Min') onto one key."""
