@@ -195,7 +195,7 @@ def calculate_scaling_factors(final_df, gas_props, acoustic_vel, spec_vol):
     if "Head (m)" in df.columns:
         df["Hpr"] = (
             df["Head (m)"]
-            * hp_factor
+            * G / (acoustic_vel**2)
         )
     if "Power (kW)" in df.columns:
         df["Pnr"] = (
@@ -797,8 +797,8 @@ if file:
             if stage_xml_exports:
                 pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='PolyPerformanceData', index=False)
 
-            pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
-                writer, sheet_name='Summary_R2', index=False)
+            # pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
+            #     writer, sheet_name='Summary_R2', index=False)
             pd.DataFrame(overview).to_excel(writer, sheet_name='Workbook_Overview', index=False)
 
             if property_rows:
