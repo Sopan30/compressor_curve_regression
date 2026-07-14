@@ -551,8 +551,8 @@ if file:
 
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            scaling_rows = []
             for stage in xls.sheet_names:
-				scaling_rows = []
                 st.header(stage)
                 try:
                     raw = pd.read_excel(file, sheet_name=stage, header=None)
@@ -580,9 +580,9 @@ if file:
                             
                             # 2. Updated Nondimensionalization Display Values
                             speed_factor = (2 * np.pi * gas_props['diameter_m']) / (60.0 * acoustic_vel)
-                            flow_factor = 1.0 / (acoustic_vel *gas_props['diameter_m']**2)
+                            flow_factor = 1.0 / (acoustic_vel * gas_props['diameter_m']**2)
                             head_factor = 1000.0 / (acoustic_vel**2)
-                            power_factor = (1000.0 * 30 * spec_vol) / (np.pi *acoustic_vel**2 *gas_props['diameter_m']**3)
+                            power_factor = (1000.0 * 30 * spec_vol) / (np.pi * acoustic_vel**2 * gas_props['diameter_m']**3)
                             
                             derived_df = pd.DataFrame([
                                 {'Parameter': 'Acoustic Velocity', 'Value': round(acoustic_vel, 2), 'Units': 'm/s'},
@@ -766,18 +766,18 @@ if file:
                     if computed_param_name and stage_status == 'ok':
                         st.success(f"Calculated missing parameter **{computed_param_name}** and **Pressure Ratio** for {stage} "
                                    f"using gas density from Operating Conditions.")
-						
+
                     if export_rows:
                         final_df = pd.concat(export_rows, ignore_index=True)
-						if gas_props is not None:
-							scaling_result = calculate_scaling_factors(final_df,gas_props,acoustic_vel,spec_vol)
-							if scaling_result is not None:
-								final_df, scaling_info = scaling_result
-					            scaling_info["Stage"] = stage
-					            scaling_rows.append(scaling_info)
+                        if gas_props is not None:
+                            scaling_result = calculate_scaling_factors(final_df, gas_props, acoustic_vel, spec_vol)
+                            if scaling_result is not None:
+                                final_df, scaling_info = scaling_result
+                                scaling_info["Stage"] = stage
+                                scaling_rows.append(scaling_info)
                         final_df.to_excel(writer, sheet_name=stage[:31], index=False)
-						if scaling_rows:
-							pd.DataFrame(scaling_rows).to_excel(writer,sheet_name="Scaling_Factors",index=False)
+                        if scaling_rows:
+                            pd.DataFrame(scaling_rows).to_excel(writer, sheet_name="Scaling_Factors", index=False)
                         xml_content = dataframe_to_tabular_xml(final_df)
                         stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
 
