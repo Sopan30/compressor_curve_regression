@@ -776,8 +776,8 @@ if file:
                                 scaling_info["Stage"] = stage
                                 scaling_rows.append(scaling_info)
                         final_df.to_excel(writer, sheet_name=stage[:31], index=False)
-                        if scaling_rows:
-                            pd.DataFrame(scaling_rows).to_excel(writer, sheet_name="Scaling_Factors", index=False)
+                        # if scaling_rows:
+                        #     pd.DataFrame(scaling_rows).to_excel(writer, sheet_name="Scaling_Factors", index=False)
                         xml_content = dataframe_to_tabular_xml(final_df)
                         stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
 
