@@ -551,6 +551,7 @@ if file:
 
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+			scaling_rows = []
             for stage in xls.sheet_names:
                 st.header(stage)
                 try:
@@ -768,7 +769,15 @@ if file:
 						
                     if export_rows:
                         final_df = pd.concat(export_rows, ignore_index=True)
+						if gas_props is not None:
+							scaling_result = calculate_scaling_factors(final_df,gas_props,acoustic_vel,spec_vol)
+							if scaling_result is not None:
+								final_df, scaling_info = scaling_result
+					            scaling_info["Stage"] = stage
+					            scaling_rows.append(scaling_info)
                         final_df.to_excel(writer, sheet_name=stage[:31], index=False)
+						if scaling_rows:
+							pd.DataFrame(scaling_rows).to_excel(writer,sheet_name="Scaling_Factors",index=False)
                         xml_content = dataframe_to_tabular_xml(final_df)
                         stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
 
