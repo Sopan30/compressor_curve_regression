@@ -10,6 +10,7 @@ from scipy.interpolate import CubicSpline
 from datetime import datetime
 import os
 import re
+import xml.etree.ElementTree as ET
 
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
@@ -362,12 +363,60 @@ def compute_missing_parameter(available, mass_flow_kg_s):
     return None, None
 
 
+def infer_tabular_data_type(series):
+    if pd.api.types.is_bool_dtype(series):
+        return 'Boolean'
+    if pd.api.types.is_integer_dtype(series):
+        return 'Int32'
+    if pd.api.types.is_float_dtype(series):
+        return 'Double'
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return 'DateTime'
+    return 'String'
+
+
+def _format_xml_scalar(value):
+    if pd.isna(value):
+        return ''
+    if isinstance(value, (bool, np.bool_)):
+        return 'true' if value else 'false'
+    if isinstance(value, (np.integer, int)):
+        return str(int(value))
+    if isinstance(value, (np.floating, float)):
+        return format(float(value), '.15g')
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def dataframe_to_tabular_xml(df):
+    root = ET.Element('TabularData', {
+        'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+        'xmlns:xsd': 'http://www.w3.org/2001/XMLSchema'
+    })
+    columns_el = ET.SubElement(root, 'Columns')
+
+    for col_name in df.columns:
+        col_el = ET.SubElement(columns_el, 'TabularDataColumn')
+        ET.SubElement(col_el, 'Name').text = str(col_name)
+        ET.SubElement(col_el, 'DataType').text = infer_tabular_data_type(df[col_name])
+        values_el = ET.SubElement(col_el, 'Values')
+
+        for value in df[col_name].tolist():
+            string_el = ET.SubElement(values_el, 'string')
+            string_el.text = _format_xml_scalar(value)
+
+    return ET.tostring(root, encoding='utf-16', xml_declaration=True).decode('utf-16')
+
+
 if file:
     xls = pd.ExcelFile(file)
     output = BytesIO()
     r2_rows = []
     overview = []
     property_rows = []
+    stage_xml_exports = []
+    final_df = pd.DataFrame()
     fatal_error = None
 
     try:
@@ -591,6 +640,8 @@ if file:
                     if export_rows:
                         final_df = pd.concat(export_rows, ignore_index=True)
                         final_df.to_excel(writer, sheet_name=stage[:31], index=False)
+                        xml_content = dataframe_to_tabular_xml(final_df)
+                        stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
 
                     overview.append({
                         'Stage': stage,
@@ -604,6 +655,9 @@ if file:
                     st.error(f"Error processing '{stage}': {e}")
                     overview.append({'Stage': stage, 'Parameters': '', 'Blocks Found': 0,
                                       'Calculated Parameter': '', 'Status': f'error: {e}'})
+
+            if stage_xml_exports:
+                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='XML_Exports', index=False)
 
             pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
                 writer, sheet_name='Summary_R2', index=False)
@@ -633,3 +687,20 @@ if file:
             file_name=output_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+        if stage_xml_exports:
+            st.subheader('Stage XML Downloads')
+            for entry in stage_xml_exports:
+                safe_stage_name = re.sub(r'[^A-Za-z0-9._-]+', '_', entry['Stage'])
+                st.download_button(
+                    label=f"Download XML for {entry['Stage']}",
+                    data=entry['XML'],
+                    file_name=f"{input_filename}_{safe_stage_name}_{timestamp}.xml",
+                    mime="application/xml"
+                )
+
+            with st.expander('XML Export Sheet Preview', expanded=False):
+                xml_sheet_df = pd.DataFrame(stage_xml_exports)
+                st.dataframe(xml_sheet_df, use_container_width=True)
+        else:
+            st.info('No tabular data was generated for XML export yet.')
