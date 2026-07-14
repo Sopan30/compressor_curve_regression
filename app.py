@@ -551,7 +551,6 @@ if file:
 
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-			scaling_rows = []
             for stage in xls.sheet_names:
                 st.header(stage)
                 try:
