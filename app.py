@@ -154,6 +154,107 @@ def clean_parameter_name(name):
     if 'power' in n or 'bhp' in n or 'kw' in n: return 'Power'
     return str(name)
 
+def calculate_scaling_factors(final_df, gas_props, acoustic_vel, spec_vol):
+
+    if gas_props is None:
+        return None
+
+    required_cols = {"Speed", "Flow (m3/hr)"}
+    if not required_cols.issubset(final_df.columns):
+        return None
+
+    diameter = gas_props["diameter_m"]
+
+    q_factor = 1.0 / (
+        acoustic_vel * diameter**2
+    )
+
+    hp_factor = 1000.0 / (
+        acoustic_vel**2
+    )
+
+    p_factor = (
+        1000.0 * spec_vol
+        /
+        (
+            acoustic_vel**2
+            * diameter**3
+            * (2 * np.pi / 60.0)
+        )
+    )
+
+    df = final_df.copy()
+
+    flow_m3s = df["Flow (m3/hr)"] / 3600.0
+
+    df["Qr"] = (
+        df["Speed"]
+        * flow_m3s
+        * q_factor
+    )
+    if "Head (m)" in df.columns:
+        df["Hpr"] = (
+            df["Head (m)"]
+            * hp_factor
+        )
+    if "Power (kW)" in df.columns:
+        df["Pnr"] = (
+            df["Power (kW)"]
+            * p_factor
+        )
+
+    scaling = {}
+
+    if "Hpr" in df.columns:
+
+        qr_max = df["Qr"].max()
+        hpr_max = df["Hpr"].max()
+
+        qr_scale_head = 1.0
+        hpr_scale = 1.0
+
+        if hpr_max > qr_max:
+            qr_scale_head = round(hpr_max / qr_max, 4)
+
+        elif qr_max > hpr_max:
+            hpr_scale = round(qr_max / hpr_max, 4)
+
+        scaling.update({
+            "Qr_Max_Head": qr_max,
+            "Hpr_Max": hpr_max,
+            "Qr_Scale_Head": qr_scale_head,
+            "Hpr_Scale": hpr_scale
+        })
+
+        df["Qr_Head_Scaled"] = df["Qr"] * qr_scale_head
+        df["Hpr_Scaled"] = df["Hpr"] * hpr_scale
+
+    if "Pnr" in df.columns:
+
+        qr_max = df["Qr"].max()
+        pnr_max = df["Pnr"].max()
+
+        qr_scale_power = 1.0
+        pnr_scale = 1.0
+
+        if pnr_max > qr_max:
+            qr_scale_power = round(pnr_max / qr_max, 4)
+
+        elif qr_max > pnr_max:
+            pnr_scale = round(qr_max / pnr_max, 4)
+
+        scaling.update({
+            "Qr_Max_Power": qr_max,
+            "Pnr_Max": pnr_max,
+            "Qr_Scale_Power": qr_scale_power,
+            "Pnr_Scale": pnr_scale
+        })
+
+        df["Qr_Power_Scaled"] = df["Qr"] * qr_scale_power
+        df["Pnr_Scaled"] = df["Pnr"] * pnr_scale
+
+    return df, scaling
+
 def detect_triplet_blocks(raw_df):
     blocks = []
     rows, cols = raw_df.shape
@@ -665,12 +766,18 @@ if file:
                     if computed_param_name and stage_status == 'ok':
                         st.success(f"Calculated missing parameter **{computed_param_name}** and **Pressure Ratio** for {stage} "
                                    f"using gas density from Operating Conditions.")
-
-                    if export_rows:
-                        final_df = pd.concat(export_rows, ignore_index=True)
-                        final_df.to_excel(writer, sheet_name=stage[:31], index=False)
-                        xml_content = dataframe_to_tabular_xml(final_df)
-                        stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
+						
+					if export_rows:
+						final_df = pd.concat(export_rows, ignore_index=True)
+						if gas_props is not None:
+							scaling_result = calculate_scaling_factors(final_df,gas_props,acoustic_vel,spec_vol)
+							if scaling_result is not None:
+								final_df, scaling_info = scaling_result
+								scaling_info["Stage"] = stage
+								scaling_rows.append(scaling_info)
+						final_df.to_excel(writer,sheet_name=stage[:31],index=False)
+						xml_content = dataframe_to_tabular_xml(final_df)
+						stage_xml_exports.append({Stage': stage,'XML': xml_content})
 
                     overview.append({
                         'Stage': stage,
