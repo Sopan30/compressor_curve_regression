@@ -686,7 +686,7 @@ if file:
                                       'Calculated Parameter': '', 'Status': f'error: {e}'})
 
             if stage_xml_exports:
-                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='XML_Exports', index=False)
+                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='PolyPerformanceData', index=False)
 
             pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
                 writer, sheet_name='Summary_R2', index=False)
