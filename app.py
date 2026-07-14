@@ -365,89 +365,60 @@ def compute_missing_parameter(available, mass_flow_kg_s):
 
 def infer_tabular_data_type(series):
     if pd.api.types.is_bool_dtype(series):
-        return "Boolean"
+        return 'Boolean'
     if pd.api.types.is_integer_dtype(series):
-        return "Int32"
+        return 'Int32'
     if pd.api.types.is_float_dtype(series):
-        return "Double"
+        return 'Double'
     if pd.api.types.is_datetime64_any_dtype(series):
-        return "DateTime"
-    return "String"
+        return 'DateTime'
+    return 'String'
 
 
 def _format_xml_scalar(value):
     if pd.isna(value):
-        return ""
-
+        return ''
     if isinstance(value, (bool, np.bool_)):
-        return "true" if value else "false"
-
+        return 'true' if value else 'false'
     if isinstance(value, (np.integer, int)):
         return str(int(value))
-
     if isinstance(value, (np.floating, float)):
-        return format(float(value), ".15g")
-
+        return format(float(value), '.15g')
     if isinstance(value, datetime):
         return value.isoformat()
-
     return str(value)
 
 
 def dataframe_to_tabular_xml(df):
-    column_mapping = {
-        "Speed": "Speed",
-        "Flow (m3/hr)": "Inlet1_ActualVolumetricFlow",
-        "Head (m)": "OperatingPolyHead",
-        "Efficiency (%, calculated)": "OperatingPolyEff",
-        "Efficiency (%)": "OperatingPolyEff",
-        "Power (kW)": "Power",
-        "Power (kW, calculated)": "Power",
-        "Pressure Ratio": "PresRatio"
-    }
-
-    required_cols = [
-        "Speed",
-        "Inlet1_ActualVolumetricFlow",
-        "OperatingPolyHead",
-        "OperatingPolyEff",
-        "PresRatio"
-    ]
-
-    df = df.copy()
+    column_mapping = {"Speed": "Speed",
+                    "Flow (m3/hr)": "Inlet1_ActualVolumetricFlow",
+                    "Head (m)": "OperatingPolyHead",
+                    "Efficiency (%, calculated)": "OperatingPolyEff",
+                    "Efficiency (%)": "OperatingPolyEff",
+                    "Power (kW)":"Power",
+                    "Power (kW, calculated)":"Power",
+                    "Pressure Ratio": "PresRatio"
+                     }
+    required_cols = ["Speed","Inlet1_ActualVolumetricFlow","OperatingPolyHead","OperatingPolyEff","PresRatio"]
     df = df.rename(columns=column_mapping)
     df = df.drop(columns=["Power"], errors="ignore")
     df = df[[c for c in required_cols if c in df.columns]]
-
-    root = ET.Element(
-        "TabularData",
-        {
-            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-            "xmlns:xsd": "http://www.w3.org/2001/XMLSchema"
-        }
-    )
-
-    columns_el = ET.SubElement(root, "Columns")
-
+    root = ET.Element('TabularData', {
+        'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+        'xmlns:xsd': 'http://www.w3.org/2001/XMLSchema'
+    })
+    columns_el = ET.SubElement(root, 'Columns')
     for col_name in df.columns:
-        col_el = ET.SubElement(columns_el, "TabularDataColumn")
+        col_el = ET.SubElement(columns_el, 'TabularDataColumn')
+        ET.SubElement(col_el, 'Name').text = str(col_name)
+        ET.SubElement(col_el, 'DataType').text = infer_tabular_data_type(df[col_name])
+        values_el = ET.SubElement(col_el, 'Values')
 
-        ET.SubElement(col_el, "Name").text = col_name
+        for value in df[col_name].tolist():
+            string_el = ET.SubElement(values_el, 'string')
+            string_el.text = _format_xml_scalar(value)
 
-        ET.SubElement(col_el, "DataType").text = "Double"
-
-        values_el = ET.SubElement(col_el, "Values")
-
-        for value in df[T.SubElement(
-                values_el,
-                "string"
-            ).text = _format_xml_scalar(value)
-
-    return ET.tostring(
-        root,
-        encoding="utf-16",
-        xml_declaration=True
-    )
+    return ET.tostring(root, encoding='utf-16', xml_declaration=True).decode('utf-16')
 
 
 if file:
