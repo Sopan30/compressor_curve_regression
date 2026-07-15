@@ -166,43 +166,21 @@ def calculate_scaling_factors(final_df, gas_props, acoustic_vel, spec_vol):
 
     diameter = gas_props["diameter_m"]
 
-    q_factor = 1.0 / (
-        acoustic_vel * diameter**2
-    )
+    q_factor = 1.0 / (acoustic_vel * diameter**2)
 
-    hp_factor = 1000.0 / (
-        acoustic_vel**2
-    )
+    hp_factor = 1000.0 / (acoustic_vel**2)
 
-    p_factor = (
-        1000.0 * spec_vol
-        /
-        (
-            acoustic_vel**2
-            * diameter**3
-            * (2 * np.pi / 60.0)
-        )
-    )
+    p_factor = (1000.0 * spec_vol/(acoustic_vel**2* diameter**3* (2 * np.pi / 60.0)))
 
     df = final_df.copy()
 
     flow_m3s = df["Flow (m3/hr)"] / 3600.0
 
-    df["Qr"] = (
-        df["Speed"]
-        * flow_m3s
-        * q_factor
-    )
+    df["Qr"] = (df["Speed"]* flow_m3s* q_factor)
     if "Head (m)" in df.columns:
-        df["Hpr"] = (
-            df["Head (m)"]
-            * G / (acoustic_vel**2)
-        )
+        df["Hpr"] = (df["Head (m)"]* G / (acoustic_vel**2))
     if "Power (kW)" in df.columns:
-        df["Pnr"] = (
-            df["Power (kW)"]
-            * p_factor
-        )
+        df["Pnr"] = (df["Power (kW)"]* p_factor)
 
     scaling = {}
 
