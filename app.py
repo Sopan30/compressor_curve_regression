@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape
 
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
+compressor_type = st.radio("Select Compressor Type",["Centrifugal Compressor", "Multi-Side Stream Compressor"],horizontal=True)
 
 method = st.sidebar.selectbox('Regression Method',
     ['Auto Best Fit','Linear','Quadratic','Cubic','4th Order','5th Order','Spline'])
