@@ -404,8 +404,10 @@ def gas_properties_from_df(prop_df):
             lookup['mw'] = row['Value']
         elif 'compressibility' in name or 'z' in name:
             lookup['z'] = row['Value']
-        elif 'isentropic' in name or 'k' == name.strip():
-            lookup['k'] = row['Value']
+        elif 'isentropic' in name or name.strip().lower() == 'k':
+            lookup['k'] = float(row['Value'])
+            if np.isclose(lookup['k'], 1.0):
+                lookup['k'] = 1.001
         elif 'diameter' in name:
             lookup['diameter'] = row['Value']
             
@@ -471,34 +473,40 @@ def _format_xml_scalar(value):
     return str(value)
 
 
-def dataframe_to_tabular_xml(df):
-    column_mapping = {
-        "Speed": "Speed",
-        "Flow (m3/hr)": "Inlet1_ActualVolumetricFlow",
-        "Head (m)": "OperatingPolyHead",
-        "Efficiency (%, calculated)": "OperatingPolyEff",
-        "Efficiency (%)": "OperatingPolyEff",
-        "Power (kW)": "Power",
-        "Power (kW, calculated)": "Power",
-        "Pressure Ratio": "PresRatio"
-    }
-    required_cols = [
-        "Speed",
-        "Inlet1_ActualVolumetricFlow",
-        "OperatingPolyHead",
-        "OperatingPolyEff",
-        "PresRatio"
-    ]
-    df = df.rename(columns=column_mapping)
-    df = df.drop(columns=["Power"], errors="ignore")
+def dataframe_to_tabular_xml(df,dtype):
+    if compressor_type == "Centrifugal Compressor":
+        column_mapping = {
+            "Speed": "Speed",
+            "Flow (m3/hr)": "Inlet1_ActualVolumetricFlow",
+            "Head (m)": "OperatingPolyHead",
+            "Efficiency (%, calculated)": "OperatingPolyEff",
+            "Efficiency (%)": "OperatingPolyEff",
+            "Power (kW)": "Power",
+            "Power (kW, calculated)": "Power",
+            "Pressure Ratio": "PresRatio"
+        }
+        required_cols = [
+            "Speed",
+            "Inlet1_ActualVolumetricFlow",
+            "OperatingPolyHead",
+            "OperatingPolyEff",
+            "PresRatio"
+        ]
+        df = df.rename(columns=column_mapping)
+        df = df.drop(columns=["Power"], errors="ignore")
 
-    available_cols = [c for c in required_cols if c in df.columns]
-    missing_cols = [c for c in required_cols if c not in df.columns]
-    if missing_cols:
-        for missing in missing_cols:
-            df[missing] = np.nan
+        available_cols = [c for c in required_cols if c in df.columns]
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        if missing_cols:
+            for missing in missing_cols:
+                df[missing] = np.nan
 
-    df = df[required_cols]
+        df = df[required_cols]
+    else:
+        if str(dtype).lower()=='custom':
+            df.drop(columns=['PressureRatio'],inplace=True,errors='ignore')
+        else:
+            pass
 
     parts = []
     parts.append('<?xml version="1.0" encoding="utf-16"?>')
@@ -519,7 +527,6 @@ def dataframe_to_tabular_xml(df):
     parts.append('</TabularData>')
     return ''.join(parts)
 
-
 if file:
     xls = pd.ExcelFile(file)
     output = BytesIO()
@@ -528,6 +535,9 @@ if file:
     property_rows = []
     stage_xml_exports = []
     final_df = pd.DataFrame()
+    if compressor_type != "Centrifugal Compressor":
+        side_stream_df = pd.DataFrame()
+        NumberOfStages = 1
     fatal_error = None
 
     try:
@@ -550,6 +560,8 @@ if file:
                             property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
                         gas_props = gas_properties_from_df(prop_df)
                         
+                        temp2 = None
+
                         if gas_props is not None:
                             t_k = c_to_k(gas_props['temperature_c'])
                             p_pa = kg_cm2a_to_pa(gas_props['pressure_kg_cm2a'])
@@ -558,25 +570,25 @@ if file:
                             acoustic_vel = np.sqrt((gas_props['k'] * gas_props['z'] * R_UNIVERSAL * t_k) / gas_props['mw'])
                             spec_vol = (gas_props['z'] * R_UNIVERSAL * t_k) / (p_pa * gas_props['mw'])
                             rho = 1.0 / spec_vol
-                            
-                            # 2. Updated Nondimensionalization Display Values
-                            speed_factor = (2 * np.pi * gas_props['diameter_m']) / (60.0 * acoustic_vel)
-                            flow_factor = 1.0 / (acoustic_vel * gas_props['diameter_m']**2)
-                            head_factor = 1000.0 / (acoustic_vel**2)
-                            power_factor = (1000.0 * 30 * spec_vol) / (np.pi * acoustic_vel**2 * gas_props['diameter_m']**3)
-                            
-                            derived_df = pd.DataFrame([
-                                {'Parameter': 'Acoustic Velocity', 'Value': round(acoustic_vel, 2), 'Units': 'm/s'},
-                                {'Parameter': 'Specific Volume', 'Value': round(spec_vol, 5), 'Units': 'm3/kg'},
-                                {'Parameter': 'Rotational Speed', 'Value': f"{speed_factor:.5e}", 'Units': 'rpm'},
-                                {'Parameter': 'Volumetric Flow', 'Value': f"{flow_factor:.5e}", 'Units': 'm3/s'},
-                                {'Parameter': 'Polytropic Head', 'Value': f"{head_factor:.5e}", 'Units': 'kJ/kg'},
-                                {'Parameter': 'Power', 'Value': f"{power_factor:.5e}", 'Units': 'kW'}
-                            ])
-                            st.dataframe(derived_df, use_container_width=True)
-                            
-                            for _, row in derived_df.iterrows():
-                                property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
+                            if compressor_type == "Centrifugal Compressor":    
+                                # 2. Updated Nondimensionalization Display Values
+                                speed_factor = (2 * np.pi * gas_props['diameter_m']) / (60.0 * acoustic_vel)
+                                flow_factor = 1.0 / (acoustic_vel * gas_props['diameter_m']**2)
+                                head_factor = 1000.0 / (acoustic_vel**2)
+                                power_factor = (1000.0 * 30 * spec_vol) / (np.pi * acoustic_vel**2 * gas_props['diameter_m']**3)
+                                
+                                derived_df = pd.DataFrame([
+                                    {'Parameter': 'Acoustic Velocity', 'Value': round(acoustic_vel, 2), 'Units': 'm/s'},
+                                    {'Parameter': 'Specific Volume', 'Value': round(spec_vol, 5), 'Units': 'm3/kg'},
+                                    {'Parameter': 'Rotational Speed', 'Value': f"{speed_factor:.5e}", 'Units': 'rpm'},
+                                    {'Parameter': 'Volumetric Flow', 'Value': f"{flow_factor:.5e}", 'Units': 'm3/s'},
+                                    {'Parameter': 'Polytropic Head', 'Value': f"{head_factor:.5e}", 'Units': 'kJ/kg'},
+                                    {'Parameter': 'Power', 'Value': f"{power_factor:.5e}", 'Units': 'kW'}
+                                ])
+                                st.dataframe(derived_df, use_container_width=True)
+                                
+                                for _, row in derived_df.iterrows():
+                                    property_rows.append([stage, row['Parameter'], row['Value'], row['Units']])
                         else:
                             st.info('Could not read Pressure/Temperature/MW/Compressibility as numbers — '
                                     'skipping derived calculations and missing-parameter steps.')
@@ -738,11 +750,27 @@ if file:
                                 
                                 pressure_ratio = (1.0 + (1000.0 * head_kj_kg) / (M5 * L5)) ** L5
                                 temp['Pressure Ratio'] = pressure_ratio
+                                if compressor_type != "Centrifugal Compressor":
+                                    temp2 = pd.DataFrame(temp).copy()
+                                    temp2.drop(columns=['Flow (m3/hr)'],inplace=True)
+                                    mass_flow_kg_hr = mass_flow_kg_s * 3600
+                                    temp2.insert(1,f'Stage{NumberOfStages}_MassFlow',mass_flow_kg_hr)
+                                    temp2.rename(columns={'Head (m)':f'Stage{NumberOfStages}_OperatingPolyHead',
+                                                          'Head (m, calculated)':f'Stage{NumberOfStages}_OperatingPolyHead',
+                                                          'Power (kW, calculated)':f'Stage{NumberOfStages}_OperatingShaftPower',
+                                                          'Power (kW)':f'Stage{NumberOfStages}_OperatingShaftPower',
+                                                          'Efficiency (%)':f'Stage{NumberOfStages}_OperatingPolyEfficiency',
+                                                          'Efficiency (%, calculated)':f'Stage{NumberOfStages}_OperatingPolyEfficiency',
+                                                          'Pressure Ratio' : 'PressureRatio'
+                                                          },inplace=True)
                                 
                             except (ZeroDivisionError, ValueError, KeyError) as e:
                                 st.warning(f"Could not compute missing parameter/pressure ratio for {stage} @ speed {speed}: {e}")
 
-                        export_rows.append(pd.DataFrame(temp))
+                        if compressor_type == "Centrifugal Compressor":
+                            export_rows.append(pd.DataFrame(temp))
+                        else:
+                            export_rows.append(temp2)
 
                     if computed_param_name and stage_status == 'ok':
                         st.success(f"Calculated missing parameter **{computed_param_name}** and **Pressure Ratio** for {stage} "
@@ -750,7 +778,7 @@ if file:
 
                     if export_rows:
                         final_df = pd.concat(export_rows, ignore_index=True)
-                        if gas_props is not None:
+                        if gas_props is not None and compressor_type == "Centrifugal Compressor":
                             scaling_result = calculate_scaling_factors(final_df, gas_props, acoustic_vel, spec_vol)
                             if scaling_result is not None:
                                 final_df, scaling_info = scaling_result
@@ -759,8 +787,22 @@ if file:
                         final_df.to_excel(writer, sheet_name=stage[:31], index=False)
                         # if scaling_rows:
                         #     pd.DataFrame(scaling_rows).to_excel(writer, sheet_name="Scaling_Factors", index=False)
-                        xml_content = dataframe_to_tabular_xml(final_df)
+                        if compressor_type == "Centrifugal Compressor":
+                            xml_content = dataframe_to_tabular_xml(final_df,'poly')
+                        else:
+                            xml_content = dataframe_to_tabular_xml(final_df,'custom')
                         stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
+                    
+                    if compressor_type != "Centrifugal Compressor":
+                        final_df.insert(0,'NumberOfStages',[NumberOfStages] * len(final_df))
+                        remap={f'Stage{NumberOfStages}_MassFlow':'Stage1_MassFlow',
+                               f'Stage{NumberOfStages}_OperatingPolyHead':'OperatingPolyHead',
+                               f'Stage{NumberOfStages}_OperatingShaftPower':'OperatingShaftPower',
+                               f'Stage{NumberOfStages}_OperatingPolyEfficiency':'OperatingPolyEfficiency'}
+                        final_df.rename(columns=remap,inplace=True)
+                        final_df.drop(columns=['OperatingShaftPower'],inplace=True,errors='ignore')
+                        side_stream_df = pd.concat([side_stream_df,final_df],ignore_index=True)
+                        NumberOfStages = NumberOfStages + 1
 
                     overview.append({
                         'Stage': stage,
@@ -769,14 +811,24 @@ if file:
                         'Calculated Parameter': computed_param_name or '',
                         'Status': stage_status
                     })
+                    
 
                 except Exception as e:
                     st.error(f"Error processing '{stage}': {e}")
                     overview.append({'Stage': stage, 'Parameters': '', 'Blocks Found': 0,
                                       'Calculated Parameter': '', 'Status': f'error: {e}'})
 
+            if not side_stream_df.empty and compressor_type != "Centrifugal Compressor":
+                side_stream_df.to_excel(writer,sheet_name='SideStreamPerformanceData',index=False)
+                xml=dataframe_to_tabular_xml(side_stream_df,'side')
+                stage_xml_exports.append({'Stage': 'SideStreamPolyformanceData', 'XML': xml})
+
             if stage_xml_exports:
-                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='PolyPerformanceData', index=False)
+                if compressor_type == "Centrifugal Compressor":
+                    sheet = 'PolyPerformanceData_XML'
+                else:
+                    sheet = 'CustomerCurveData_XML'
+                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name=sheet, index=False)
 
             # pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
             #     writer, sheet_name='Summary_R2', index=False)
