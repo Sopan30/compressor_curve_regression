@@ -850,7 +850,7 @@ if file:
             if not side_stream_df.empty and compressor_type != "Centrifugal Compressor":
                 side_stream_df.to_excel(writer,sheet_name='SideStreamPerformanceData',index=False)
                 xml=dataframe_to_tabular_xml(side_stream_df,'side')
-                stage_xml_exports.append({'Stage': 'SideStreamPolyformanceData', 'XML': xml})
+                stage_xml_exports.append({'Stage': 'SideStreamPolyPerformanceData', 'XML': xml})
 
             if stage_xml_exports:
                 if compressor_type == "Centrifugal Compressor":
@@ -859,14 +859,13 @@ if file:
                     sheet = 'CustomerCurveData_XML'
                 pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name=sheet, index=False)
 
-            # pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(
-            #     writer, sheet_name='Summary_R2', index=False)
-            pd.DataFrame(overview).to_excel(writer, sheet_name='Workbook_Overview', index=False)
-
             if property_rows:
                 pd.DataFrame(
                     property_rows, columns=['Stage', 'Parameter', 'Value', 'Units']
                 ).to_excel(writer, sheet_name='Operating_Conditions', index=False)
+                
+            pd.DataFrame(overview).to_excel(writer, sheet_name='Workbook_Overview', index=False)
+            pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(writer, sheet_name='Summary_R2', index=False)
 
     except Exception as e:
         fatal_error = e
