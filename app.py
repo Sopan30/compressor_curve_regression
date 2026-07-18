@@ -473,7 +473,9 @@ def _format_xml_scalar(value):
     return str(value)
 
 
-def dataframe_to_tabular_xml(df,dtype):
+def dataframe_to_tabular_xml(df1, dtype):
+    df = df1.copy()
+
     if compressor_type == "Centrifugal Compressor":
         column_mapping = {
             "Speed": "Speed",
@@ -492,39 +494,66 @@ def dataframe_to_tabular_xml(df,dtype):
             "OperatingPolyEff",
             "PresRatio"
         ]
-        df = df.rename(columns=column_mapping)
-        df = df.drop(columns=["Power"], errors="ignore")
 
-        available_cols = [c for c in required_cols if c in df.columns]
-        missing_cols = [c for c in required_cols if c not in df.columns]
-        if missing_cols:
-            for missing in missing_cols:
-                df[missing] = np.nan
+        df.rename(columns=column_mapping, inplace=True)
+        df.drop(
+            columns=["Power"],
+            inplace=True,
+            errors="ignore"
+        )
+        
+        missing_cols = [
+            c for c in required_cols
+            if c not in df.columns
+        ]
+
+        for col in missing_cols:
+            df[col] = np.nan
 
         df = df[required_cols]
-    else:
-        if str(dtype).lower()=='custom':
-            df.drop(columns=['PressureRatio'],inplace=True,errors='ignore')
-        else:
-            pass
+
+    elif str(dtype).lower() == "custom":
+        df.drop(
+            columns=["PressureRatio"],
+            inplace=True,
+            errors="ignore"
+        )
 
     parts = []
+
     parts.append('<?xml version="1.0" encoding="utf-16"?>')
-    parts.append('<TabularData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">')
+    parts.append(
+        '<TabularData '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        'xmlns:xsd="http://www.w3.org/2001/XMLSchema">'
+    )
+
     parts.append('<Columns>')
 
     for col_name in df.columns:
         parts.append('<TabularDataColumn>')
-        parts.append(f'<Name>{escape(str(col_name))}</Name>')
-        parts.append(f'<DataType>{infer_tabular_data_type(df[col_name])}</DataType>')
+
+        parts.append(
+            f'<Name>{escape(str(col_name))}</Name>'
+        )
+
+        parts.append(
+            f'<DataType>{infer_tabular_data_type(df[col_name])}</DataType>'
+        )
+
         parts.append('<Values>')
+
         for value in df[col_name].tolist():
-            parts.append(f'<string>{escape(_format_xml_scalar(value))}</string>')
+            parts.append(
+                f'<string>{escape(_format_xml_scalar(value))}</string>'
+            )
+
         parts.append('</Values>')
         parts.append('</TabularDataColumn>')
 
     parts.append('</Columns>')
     parts.append('</TabularData>')
+
     return ''.join(parts)
 
 if file:
