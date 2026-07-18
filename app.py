@@ -15,10 +15,6 @@ from xml.sax.saxutils import escape
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
 compressor_type = st.radio("Select Compressor Type",["Centrifugal Compressor", "Multi-Side Stream Compressor"],horizontal=True)
-compressor_type = st.radio(
-    "Select Compressor Type",
-    ["Centrifugal Compressor", "Custom Compressor"]
-)
 if compressor_type != "Centrifugal Compressor":
     st.warning(
         """
