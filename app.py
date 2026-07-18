@@ -15,8 +15,8 @@ from xml.sax.saxutils import escape
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
 compressor_type = st.radio("Select Compressor Type",["Centrifugal Compressor", "Multi-Side Stream Compressor"],horizontal=True)
-if compressor_type == "Multi-Side Stream Compressor":
-    no_of_stages=st.selectbox(label="Select Number of Stages for Multi-Side Stream Compressor",options=list(range(1,11)))
+# if compressor_type == "Multi-Side Stream Compressor":
+#     no_of_stages=st.selectbox(label="Select Number of Stages for Multi-Side Stream Compressor",options=list(range(1,11)))
 
 method = st.sidebar.selectbox('Regression Method',
     ['Auto Best Fit','Linear','Quadratic','Cubic','4th Order','5th Order','Spline'])
