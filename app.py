@@ -820,6 +820,7 @@ if file:
                             xml_content = dataframe_to_tabular_xml(final_df,'poly')
                         else:
                             xml_content = dataframe_to_tabular_xml(final_df,'custom')
+                            final_df.to_excel(writer, sheet_name=f'Stage{NumberOfStages}_CustomPerformanceData', index=False)
                         stage_xml_exports.append({'Stage': stage, 'XML': xml_content})
                     
                     if compressor_type != "Centrifugal Compressor":
