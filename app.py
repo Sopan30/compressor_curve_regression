@@ -45,9 +45,7 @@ else:
 
 method = st.sidebar.selectbox('Regression Method',
     ['Auto Best Fit','Linear','Quadratic','Cubic','4th Order','5th Order','Spline'])
-number_options = list[range(10,51,5)]
-default_idx = number_options.index(20)
-points = st.sidebar.selectbox('Select Number of Points',number_options,index=default_idx)
+points = st.sidebar.slider('Number of Points',10,50,15)
 file = st.file_uploader('Upload Workbook', type=['xlsx'])
 
 # ---------------------------------------------------------------------------
