@@ -15,6 +15,29 @@ from xml.sax.saxutils import escape
 st.set_page_config(page_title='Compressor Curve Regression', layout='wide')
 st.title('Compressor Curve Regression Tool')
 compressor_type = st.radio("Select Compressor Type",["Centrifugal Compressor", "Multi-Side Stream Compressor"],horizontal=True)
+compressor_type = st.radio(
+    "Select Compressor Type",
+    ["Centrifugal Compressor", "Custom Compressor"]
+)
+if compressor_type != "Centrifugal Compressor":
+    st.warning(
+        """
+        ⚠ **Custom Compressor Selected**
+        - Flow values will be converted to **Mass Flow (kg/hr)** using the operating conditions provided in the Excel file.
+        - Please ensure all Operating Condition values are correct, especially:
+            - Pressure
+            - Temperature
+            - Molecular Weight (MW)
+            - Compressibility (Z)
+            - Isentropic Exponent (k)
+        Incorrect operating conditions will result in incorrect Mass Flow and performance calculations.
+        """)
+else:
+    st.info(
+        """
+        ℹ **Centrifugal Compressor Selected**
+        Performance calculations, pressure ratio, scaling factors, and XML export will be based on the operating conditions provided in the Excel file.
+        """)
 # if compressor_type == "Multi-Side Stream Compressor":
 #     no_of_stages=st.selectbox(label="Select Number of Stages for Multi-Side Stream Compressor",options=list(range(1,11)))
 
