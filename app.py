@@ -854,16 +854,10 @@ if file:
                 stage_xml_exports.append({'Stage': 'SideStreamPolyPerformanceData', 'XML': xml})
 
             if stage_xml_exports:
-                if compressor_type == "Centrifugal Compressor":
-                    sheet = 'PolyPerformanceData_XML'
-                else:
-                    sheet = 'CustomerCurveData_XML'
-                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name=sheet, index=False)
+                pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='CurveData_XML', index=False)
 
             if property_rows:
-                pd.DataFrame(
-                    property_rows, columns=['Stage', 'Parameter', 'Value', 'Units']
-                ).to_excel(writer, sheet_name='Operating_Conditions', index=False)
+                pd.DataFrame(property_rows, columns=['Stage', 'Parameter', 'Value', 'Units']).to_excel(writer, sheet_name='Operating_Conditions', index=False)
                 
             pd.DataFrame(overview).to_excel(writer, sheet_name='Workbook_Overview', index=False)
             pd.DataFrame(r2_rows, columns=['Stage', 'Speed', 'Parameter', 'Method', 'R2']).to_excel(writer, sheet_name='Summary_R2', index=False)
@@ -879,7 +873,7 @@ if file:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         input_filename = os.path.splitext(file.name)[0]
-        output_filename = f"{input_filename}_Regression_Output_{timestamp}.xlsx"
+        output_filename = f"{input_filename}_Map_Fiting_{timestamp}.xlsx"
 
         st.download_button(
             label="Download Regression Workbook",
@@ -895,8 +889,8 @@ if file:
                 st.download_button(
                     label=f"Download XML for {entry['Stage']}",
                     data=entry['XML'],
-                    file_name=f"{input_filename}_{safe_stage_name}_{timestamp}.xml",
-                    mime="application/xml"
+                    file_name=f"{input_filename}_{safe_stage_name}_{timestamp}.txt",
+                    mime="application/octet-stream"
                 )
 
             with st.expander('XML Export Sheet Preview', expanded=False):
