@@ -872,10 +872,11 @@ if file:
                     overview.append({'Stage': stage, 'Parameters': '', 'Blocks Found': 0,
                                       'Calculated Parameter': '', 'Status': f'error: {e}'})
 
-            if not side_stream_df.empty and compressor_type != "Centrifugal Compressor":
-                side_stream_df.to_excel(writer,sheet_name='SideStreamPerformanceData',index=False)
-                xml=dataframe_to_tabular_xml(side_stream_df,'side')
-                stage_xml_exports.append({'Stage': 'SideStreamPolyPerformanceData', 'XML': xml})
+            if compressor_type != "Centrifugal Compressor":
+                if not side_stream_df.empty:
+                    side_stream_df.to_excel(writer,sheet_name='SideStreamPerformanceData',index=False)
+                    xml=dataframe_to_tabular_xml(side_stream_df,'side')
+                    stage_xml_exports.append({'Stage': 'SideStreamPolyPerformanceData', 'XML': xml})
 
             if stage_xml_exports:
                 pd.DataFrame(stage_xml_exports).to_excel(writer, sheet_name='CurveData_XML', index=False)
