@@ -835,7 +835,7 @@ if file:
                         if gas_props is not None and compressor_type == "Centrifugal Compressor":
                             scaling_result = calculate_scaling_factors(final_df, gas_props, acoustic_vel, spec_vol)
                             if scaling_result is not None:
-                                final_df, scaling_info = scaling_result
+                                scaling_df, scaling_info = scaling_result
                                 scaling_info["Stage"] = stage
                                 scaling_rows.append(scaling_info)
                         final_df.to_excel(writer, sheet_name=stage[:31], index=False)
